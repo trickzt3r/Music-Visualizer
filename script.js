@@ -8,6 +8,15 @@ let analyser;
 let dataArray;
 let bufferLength;
 let particles = [];
+let orb = { x: canvas.width / 2, y: canvas.height / 2, baseRadius: 80 };
+
+let settings = {
+  hue: 180,
+  saturation: 100,
+  lightness: 50,
+  bassBoost: true,
+  particleScale: 1.5,
+};
 
 async function initMic() {
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -15,7 +24,7 @@ async function initMic() {
   const source = audioCtx.createMediaStreamSource(stream);
 
   analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 2048;
+  analyser.fftSize = 256;
   bufferLength = analyser.frequencyBinCount;
   dataArray = new Uint8Array(bufferLength);
 
@@ -23,51 +32,49 @@ async function initMic() {
   animate();
 }
 
+function getBassLevel() {
+  // Lower frequency bins = bass
+  const bassBins = dataArray.slice(0, 10);
+  return bassBins.reduce((a, b) => a + b, 0) / bassBins.length;
+}
+
 function animate() {
   requestAnimationFrame(animate);
 
-  analyser.getByteTimeDomainData(dataArray);
+  analyser.getByteFrequencyData(dataArray);
   ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  drawWaveform();
+  drawOrb();
   updateParticles();
 }
 
-function drawWaveform() {
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = '#00ffcc';
+function drawOrb() {
+  let avg = dataArray.reduce((a, b) => a + b) / bufferLength;
+  let bass = settings.bassBoost ? getBassLevel() : 0;
+  let glowRadius = orb.baseRadius + avg / 2 + bass / 2;
+
+  let gradient = ctx.createRadialGradient(orb.x, orb.y, orb.baseRadius / 2, orb.x, orb.y, glowRadius);
+  gradient.addColorStop(0, `hsl(${settings.hue}, ${settings.saturation}%, ${settings.lightness}%)`);
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
   ctx.beginPath();
-
-  const sliceWidth = canvas.width / bufferLength;
-  let x = 0;
-
-  for (let i = 0; i < bufferLength; i++) {
-    const v = dataArray[i] / 128.0;
-    const y = v * canvas.height / 2;
-
-    if (i === 0) {
-      ctx.moveTo(x, y);
-    } else {
-      ctx.lineTo(x, y);
-    }
-
-    x += sliceWidth;
-  }
-
-  ctx.lineTo(canvas.width, canvas.height / 2);
-  ctx.stroke();
+  ctx.arc(orb.x, orb.y, glowRadius, 0, Math.PI * 2);
+  ctx.fillStyle = gradient;
+  ctx.fill();
 }
 
 function updateParticles() {
-  for (let i = 0; i < 5; i++) {
+  const bass = getBassLevel();
+  for (let i = 0; i < 3 + bass / 25; i++) {
     particles.push({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
-      dx: (Math.random() - 0.5) * 4,
-      dy: (Math.random() - 0.5) * 4,
-      radius: Math.random() * 4 + 2,
-      color: `hsl(${Math.random() * 360}, 100%, 50%)`
+      x: orb.x,
+      y: orb.y,
+      dx: (Math.random() - 0.5) * 6,
+      dy: (Math.random() - 0.5) * 6,
+      radius: (Math.random() * 3 + 1) * settings.particleScale,
+      life: 100,
+      color: `hsl(${Math.random() * 360}, 100%, 70%)`
     });
   }
 
@@ -79,10 +86,9 @@ function updateParticles() {
 
     p.x += p.dx;
     p.y += p.dy;
+    p.life -= 1;
 
-    if (p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) {
-      particles.splice(i, 1);
-    }
+    if (p.life <= 0) particles.splice(i, 1);
   });
 }
 
